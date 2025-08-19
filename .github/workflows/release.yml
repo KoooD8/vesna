@@ -1,0 +1,40 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            echo "prev=$PREV_TAG" >> $GITHUB_OUTPUT
+            echo "changelog=$(git log --oneline ${PREV_TAG}..HEAD)" >> $GITHUB_OUTPUT
+          else
+            echo "prev=none" >> $GITHUB_OUTPUT
+            echo "changelog=$(git log --oneline)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
+            Changes since ${{ steps.changelog.outputs.prev }}:
+            ${{ steps.changelog.outputs.changelog }}
+

@@ -63,13 +63,22 @@ Docker
 
 Публикация Docker-образа (GHCR)
 - Образ публикуется в GitHub Container Registry при пушах в main и на теги v* через workflow .github/workflows/docker-publish.yml.
-- Доступ к приватному образу: выполните логин и pull
-  docker login ghcr.io -u KoooD8 -p {{GH_PAT_with_write_packages}}
-  docker pull ghcr.io/koood8/vesna/ai-agents-stack:latest
+- Доступ к образу:
+  - Если пакет публичный — docker pull ghcr.io/koood8/vesna/ai-agents-stack:latest
+  - Если приватный — выполните логин: echo "$GH_PAT" | docker login ghcr.io -u KoooD8 --password-stdin
 - Права workflow: в Settings → Actions → General включите "Workflow permissions" → "Read and write permissions" (нужно для публикации в GHCR).
 - Имена тегов:
   - latest — пуши в main
   - vX.Y.Z — создаются автоматически при тегах v*
+
+Локальный деплой (без GHCR)
+- Поднять Qdrant: docker compose --profile qdrant up -d
+- Проверка стека:
+  - make health (или python3 chat.py --health при активном venv)
+- Сборка локального образа (по желанию):
+  - docker build -t local/ai-agents-stack:latest .
+- Полный стек через профили:
+  - docker compose --profile all up -d --build
 
 Инжест в Qdrant
 - По умолчанию берёт Vault из
