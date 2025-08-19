@@ -1,6 +1,8 @@
 # AI Agents Stack
 
 [![CI](https://github.com/KoooD8/vesna/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/KoooD8/vesna/actions/workflows/tests.yml)
+[![Release](https://img.shields.io/github/v/release/KoooD8/vesna?display_name=tag&sort=semver)](https://github.com/KoooD8/vesna/releases)
+[![GHCR](https://img.shields.io/badge/GHCR-ai--agents--stack-blue)](https://github.com/users/KoooD8/packages/container/package/vesna%2Fai-agents-stack)
 
 Назначение
 - Web Research Agent: выполняет поиск через DuckDuckGo, Reddit и Google News RSS.
@@ -111,6 +113,16 @@ LLM-суммаризация (опционально)
   python3 chat.py summarize:llm-file path/to.json --provider openai --model gpt-4o-mini --title "My LLM Summary"
 - Поддерживаемые провайдеры: openai, anthropic (нужны ключи окружения)
 
+YouTube/Telegram источники (без кода)
+- Чтобы обработать YouTube через существующий шаг транскрибации, можно скачать аудио в Obsidian Inbox/Audio и затем запустить транскрибацию.
+- Установка extras для источников: pip install -r requirements-extras-sources.txt
+- Скачивание YouTube-аудио (список ссылок в urls.txt):
+  scripts/fetch_youtube.sh urls.txt
+- После загрузки файлов в Vault/Inbox/Audio запустите транскрибацию и инжест:
+  python3 -m orchestrator.cli run-agent configs/agents/core.yaml
+  или Makefile цель transcribe/e2e.
+- Примечание: Telegram можно обрабатывать аналогично — сохраняйте аудио/видео в Inbox/Audio вручную или через сторонний клиент, затем используйте транскрибацию.
+
 Extras и Torch
 - Базовые зависимости не включают torch.
 - Опциональные extras:
@@ -119,6 +131,7 @@ Extras и Torch
 - Если требуется torch, используйте pinned версию (см. комментарии в requirements-extras.txt) и убедитесь в совместимости с вашей платформой.
 
 Известные моменты/улучшения
+- Безопасность GHCR: пакет публичный — не включайте секреты и приватные данные в образ. .env и локальные артефакты уже исключены из контекста. Для приватных настроек используйте переменные окружения при запуске.
 - Reddit без официального API может отвечать 429/403. Добавлены ретраи и несколько запросов.
 - DDG vqd токен может меняться — реализован fallback на HTML SERP.
 - Для больших объёмов данных стоит добавить батчевую вставку в Qdrant и асинхронный пайплайн.

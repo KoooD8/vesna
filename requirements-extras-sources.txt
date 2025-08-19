@@ -1,0 +1,5 @@
+# Optional extras for content sources
+# Install with:
+#   pip install -r requirements-extras-sources.txt
+
+yt-dlp>=2025.1.1
