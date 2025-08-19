@@ -31,15 +31,24 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
+          flavor: |
+            latest=false
+            suffix=-lower,enable=true
           tags: |
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/heads/main') }}
             type=ref,event=tag
+
+      - name: Normalize tags to lowercase
+        id: norm
+        run: |
+          echo "tags=$(echo '${{ steps.meta.outputs.tags }}' | tr 'A-Z' 'a-z')" >> $GITHUB_OUTPUT
+          echo "labels=$(echo '${{ steps.meta.outputs.labels }}' | tr 'A-Z' 'a-z')" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.norm.outputs.tags }}
+          labels: ${{ steps.norm.outputs.labels }}
 

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/KoooD8/vesna/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/KoooD8/vesna/actions/workflows/tests.yml)
 [![Release](https://img.shields.io/github/v/release/KoooD8/vesna?display_name=tag&sort=semver)](https://github.com/KoooD8/vesna/releases)
-[![GHCR](https://img.shields.io/badge/GHCR-vesna-blue)](https://github.com/users/KoooD8/packages/container/package/vesna)
+[![GHCR](https://img.shields.io/badge/GHCR-vesna-blue)](https://github.com/users/koood8/packages/container/package/vesna)
 
 Назначение
 - Web Research Agent: выполняет поиск через DuckDuckGo, Reddit и Google News RSS.
@@ -66,7 +66,7 @@ Docker
 Публикация Docker-образа (GHCR)
 - Образ публикуется в GitHub Container Registry при пушах в main и на теги v* через workflow .github/workflows/docker-publish.yml.
 - Доступ к образу:
-  - Если пакет публичный — docker pull ghcr.io/KoooD8/vesna:latest
+  - Если пакет публичный — docker pull ghcr.io/koood8/vesna:latest
   - Если приватный — выполните логин: echo "$GH_PAT" | docker login ghcr.io -u KoooD8 --password-stdin
 - Права workflow: в Settings → Actions → General включите "Workflow permissions" → "Read and write permissions" (нужно для публикации в GHCR).
 - Имена тегов:
