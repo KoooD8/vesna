@@ -1,0 +1,10 @@
+# Minimal example pipeline: creates a daily note and then runs a health check
+id: example.daily_health
+name: Example Daily Health
+pipeline:
+  - step: create_daily_note
+    with:
+      title: "Daily Note (Example)"
+      content: "# Daily\n\n- Tasks:\n- Thoughts:\n"
+  - step: health_check
+

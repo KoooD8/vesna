@@ -1,0 +1,13 @@
+# Optional extras, install with:
+#   pip install -r requirements-extras.txt
+# macOS prerequisites for PyAV (used by faster-whisper):
+#   brew install pkg-config ffmpeg
+# or ensure ffmpeg and pkg-config are available on PATH
+
+# CPU-friendly Whisper implementation (no torch required)
+faster-whisper==1.0.3
+
+# Optional: PyTorch pinned (uncomment if you need torch explicitly)
+# Note: Ensure compatibility with your Python version and platform wheels.
+# torch==2.4.1
+
