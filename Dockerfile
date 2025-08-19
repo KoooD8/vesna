@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
-FROM python:3.13-slim
+# Use Python 3.12 to ensure prebuilt wheels for lxml are available on CI runners
+FROM python:3.12-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
@@ -14,6 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+# Upgrade pip tooling to improve wheel resolution on CI
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
