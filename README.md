@@ -1,5 +1,7 @@
 # AI Agents Stack
 
+[![CI](https://github.com/KoooD8/vesna/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/KoooD8/vesna/actions/workflows/tests.yml)
+
 Назначение
 - Web Research Agent: выполняет поиск через DuckDuckGo, Reddit и Google News RSS.
 - Интеграция с Obsidian Vault: сохраняет результаты в папки Sources/ и Index/.
@@ -58,6 +60,16 @@ Docker
   docker compose logs -f app
 - Запуск произвольной команды внутри контейнера app:
   docker compose run --rm app python3 chat.py search:web "your query" --save
+
+Публикация Docker-образа (GHCR)
+- Образ публикуется в GitHub Container Registry при пушах в main и на теги v* через workflow .github/workflows/docker-publish.yml.
+- Доступ к приватному образу: выполните логин и pull
+  docker login ghcr.io -u KoooD8 -p {{GH_PAT_with_write_packages}}
+  docker pull ghcr.io/koood8/vesna/ai-agents-stack:latest
+- Права workflow: в Settings → Actions → General включите "Workflow permissions" → "Read and write permissions" (нужно для публикации в GHCR).
+- Имена тегов:
+  - latest — пуши в main
+  - vX.Y.Z — создаются автоматически при тегах v*
 
 Инжест в Qdrant
 - По умолчанию берёт Vault из
