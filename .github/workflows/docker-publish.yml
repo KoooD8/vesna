@@ -30,10 +30,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
-          flavor: |
-            latest=false
-            suffix=-lower,enable=true
+          images: ghcr.io/koood8/vesna
           tags: |
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/heads/main') }}
             type=ref,event=tag
