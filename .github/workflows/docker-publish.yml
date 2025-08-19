@@ -30,7 +30,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}/ai-agents-stack
+          images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/heads/main') }}
             type=ref,event=tag

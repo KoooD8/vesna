@@ -33,7 +33,7 @@ test:
 	. ./.venv/bin/activate && pytest -q
 
 # Docker image build and push
-IMAGE_NAME ?= ghcr.io/$(shell git config --get remote.origin.url | sed -E 's#https?://github.com/##; s/\.git$$//')/ai-agents-stack:latest
+IMAGE_NAME ?= ghcr.io/$(shell git config --get remote.origin.url | sed -E 's#https?://github.com/##; s/\.git$$//'):latest
 
 build-image:
 	docker build -t $(IMAGE_NAME) .
