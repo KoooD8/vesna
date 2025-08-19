@@ -1,0 +1,22 @@
+# Weekly research digest pipeline config
+id: weekly_digest
+schedule:
+  cron: "0 19 * * 5"  # every Friday 19:00
+pipeline:
+  - step: search_web
+    with:
+      source: "DuckDuckGo"
+      query: "site:arxiv.org LLM OR RAG OR agentic"
+      save: true
+  - step: ingest_qdrant
+    with:
+      collection: "ai_research"
+      batch: 256
+  - step: vector_topk
+    with:
+      query: "Most important AI research of the week"
+      k: 25
+  - step: save_sources_markdown
+    with:
+      title: "Weekly AI Digest"
+

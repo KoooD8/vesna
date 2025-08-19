@@ -1,0 +1,22 @@
+# Daily news summary pipeline config
+id: daily_news
+schedule:
+  cron: "30 8 * * *"  # every day 08:30
+pipeline:
+  - step: search_web
+    with:
+      source: "Google News"
+      query: "AI OR LLM OR Generative AI"
+      save: true
+  - step: ingest_qdrant
+    with:
+      collection: "ai_research"
+      batch: 128
+  - step: vector_topk
+    with:
+      query: "What's new in AI?"
+      k: 15
+  - step: save_sources_markdown
+    with:
+      title: "Daily AI News"
+

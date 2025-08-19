@@ -10,6 +10,8 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+    profiles: ["qdrant", "all"]
+
   app:
     build: .
     environment:
@@ -22,6 +24,8 @@ services:
       qdrant:
         condition: service_healthy
     command: ["python3", "chat.py", "--health"]
+    profiles: ["app", "all"]
+
 volumes:
   qdrant_storage:
 

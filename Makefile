@@ -1,3 +1,46 @@
+# Makefile helpers for AI Agents Stack
+
+.PHONY: help up up-all down logs health test build-image push-image
+
+help:
+	@echo "Targets:"
+	@echo "  up         - start qdrant only (profile qdrant)"
+	@echo "  up-all     - start full stack (app+qdrant)"
+	@echo "  down       - stop all containers"
+	@echo "  logs       - follow app logs"
+	@echo "  health     - run chat.py --health inside app container"
+	@echo "  test       - run pytest locally (venv)"
+	@echo "  build-image- build Docker image"
+	@echo "  push-image - push image to GHCR (requires GHCR auth)"
+
+up:
+	docker compose --profile qdrant up -d
+
+up-all:
+	docker compose --profile all up -d --build
+
+down:
+	docker compose down
+
+logs:
+	docker compose logs -f app
+
+health:
+	docker compose run --rm app python3 chat.py --health
+
+# Local test via venv
+test:
+	. ./.venv/bin/activate && pytest -q
+
+# Docker image build and push
+IMAGE_NAME ?= ghcr.io/$(shell git config --get remote.origin.url | sed -E 's#https?://github.com/##; s/\.git$$//')/ai-agents-stack:latest
+
+build-image:
+	docker build -t $(IMAGE_NAME) .
+
+push-image:
+	docker push $(IMAGE_NAME)
+
 SHELL := /bin/bash
 
 .PHONY: setup test up down health e2e transcribe schedule
