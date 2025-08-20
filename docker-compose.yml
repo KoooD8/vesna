@@ -13,7 +13,7 @@ services:
     profiles: ["qdrant", "all"]
 
   app:
-    build: .
+    image: ghcr.io/koood8/vesna:latest
     environment:
       - AI_STACK_QDRANT_URL=http://qdrant:6333
       - AI_STACK_QDRANT_COLLECTION=ai_research

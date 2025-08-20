@@ -64,6 +64,12 @@ Docker
   docker compose run --rm app python3 chat.py search:web "your query" --save
 
 Публикация Docker-образа (GHCR)
+- Multi-arch образ (linux/amd64, linux/arm64) публикуется автоматически.
+- Быстрые команды:
+  - docker pull ghcr.io/koood8/vesna:v0.1.9
+  - docker run --rm ghcr.io/koood8/vesna:v0.1.9 python3 -c "import platform, sys, lxml; print(platform.machine()); print(sys.version); import lxml; print(lxml.__version__)"
+  - Offline health-check (без сетевых загрузок моделей):
+    docker run --rm -e TRANSFORMERS_OFFLINE=1 -e HF_HUB_OFFLINE=1 ghcr.io/koood8/vesna:v0.1.9 python3 chat.py --health
 - Образ публикуется в GitHub Container Registry при пушах в main и на теги v* через workflow .github/workflows/docker-publish.yml.
 - Доступ к образу:
   - Если пакет публичный — docker pull ghcr.io/koood8/vesna:latest

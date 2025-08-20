@@ -1,6 +1,6 @@
 # Makefile helpers for AI Agents Stack
 
-.PHONY: help up up-all down logs health test build-image push-image
+.PHONY: help up up-all down logs health test build-image push-image pull-image run-image
 
 help:
 	@echo "Targets:"
@@ -12,6 +12,8 @@ help:
 	@echo "  test       - run pytest locally (venv)"
 	@echo "  build-image- build Docker image"
 	@echo "  push-image - push image to GHCR (requires GHCR auth)"
+	@echo "  pull-image - pull image from GHCR"
+	@echo "  run-image  - run health-check using GHCR image"
 
 up:
 	docker compose --profile qdrant up -d
@@ -41,6 +43,12 @@ build-image:
 
 push-image:
 	docker push $(IMAGE_NAME)
+
+pull-image:
+	docker pull $(IMAGE_NAME)
+
+run-image:
+	docker run --rm -e TRANSFORMERS_OFFLINE=1 -e HF_HUB_OFFLINE=1 $(IMAGE_NAME) python3 chat.py --health
 
 SHELL := /bin/bash
 
