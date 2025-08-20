@@ -58,6 +58,7 @@
 Docker
 - Сборка и запуск локально вместе с Qdrant:
   docker compose up --build
+- Использование образа в compose: app тянет ghcr.io/koood8/vesna:v0.1.9 (multi-arch)
 - Проверка здоровья приложения в контейнере (по умолчанию команда app — health):
   docker compose logs -f app
 - Запуск произвольной команды внутри контейнера app:

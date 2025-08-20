@@ -37,7 +37,9 @@ jobs:
         with:
           images: ghcr.io/koood8/vesna
           tags: |
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/heads/main') }}
+            # Always tag latest for both main pushes and version tags
+            type=raw,value=latest,enable=true
+            # Also tag with the version ref on tags (e.g., v0.1.9)
             type=ref,event=tag
 
       - name: Build and push (multi-arch)
