@@ -10,6 +10,7 @@ from config import load_config
 
 from vector_store import VectorStore
 from agents.web_research.working_agent import WorkingWebAgent
+from agents.obsidian.manager import ObsidianManager
 
 def _frontmatter(props: Dict[str, Any]) -> str:
     """Build YAML frontmatter using safe YAML dump with proper quoting."""
@@ -518,6 +519,163 @@ def step_create_weekly_note(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict
     except Exception:
         pass
     return {"weekly_path": str(p)}
+
+# ---------------- Obsidian management steps ----------------
+@register("obsidian_backup")
+def step_obsidian_backup(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    cfg = load_config()
+    vault = params.get("vault") or cfg.vault_path
+    out_dir = params.get("out_dir")
+    mgr = ObsidianManager(vault)
+    out = mgr.backup_settings(out_dir)
+    return {"obsidian_backup_dir": str(out)}
+
+@register("obsidian_list_plugins")
+def step_obsidian_list_plugins(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    cfg = load_config()
+    vault = params.get("vault") or cfg.vault_path
+    mgr = ObsidianManager(vault)
+    info = mgr.list_plugins()
+    return {"obsidian_plugins": info}
+
+@register("obsidian_enable_plugin")
+def step_obsidian_enable_plugin(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    plugin_id = params.get("id") or params.get("plugin")
+    if not plugin_id:
+        raise ValueError("obsidian_enable_plugin: 'id' is required")
+    cfg = load_config()
+    vault = params.get("vault") or cfg.vault_path
+    mgr = ObsidianManager(vault)
+    mgr.enable_plugin(str(plugin_id))
+    return {"obsidian_action": f"enabled {plugin_id}"}
+
+@register("obsidian_disable_plugin")
+def step_obsidian_disable_plugin(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    plugin_id = params.get("id") or params.get("plugin")
+    if not plugin_id:
+        raise ValueError("obsidian_disable_plugin: 'id' is required")
+    cfg = load_config()
+    vault = params.get("vault") or cfg.vault_path
+    mgr = ObsidianManager(vault)
+    mgr.disable_plugin(str(plugin_id))
+    return {"obsidian_action": f"disabled {plugin_id}"}
+
+@register("obsidian_enable_core_plugin")
+def step_obsidian_enable_core_plugin(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    plugin_id = params.get("id") or params.get("plugin")
+    if not plugin_id:
+        raise ValueError("obsidian_enable_core_plugin: 'id' is required")
+    cfg = load_config()
+    vault = params.get("vault") or cfg.vault_path
+    mgr = ObsidianManager(vault)
+    mgr.enable_core_plugin(str(plugin_id))
+    return {"obsidian_action": f"enabled core {plugin_id}"}
+
+@register("obsidian_disable_core_plugin")
+def step_obsidian_disable_core_plugin(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    plugin_id = params.get("id") or params.get("plugin")
+    if not plugin_id:
+        raise ValueError("obsidian_disable_core_plugin: 'id' is required")
+    cfg = load_config()
+    vault = params.get("vault") or cfg.vault_path
+    mgr = ObsidianManager(vault)
+    mgr.disable_core_plugin(str(plugin_id))
+    return {"obsidian_action": f"disabled core {plugin_id}"}
+
+@register("obsidian_install_plugin_zip")
+def step_obsidian_install_plugin_zip(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    zip_path = params.get("zip") or params.get("path")
+    if not zip_path:
+        raise ValueError("obsidian_install_plugin_zip: 'zip' is required")
+    dir_name = params.get("dir")
+    cfg = load_config()
+    vault = params.get("vault") or cfg.vault_path
+    mgr = ObsidianManager(vault)
+    pid = mgr.install_plugin_from_zip(str(zip_path), plugin_dir_name=dir_name)
+    return {"obsidian_plugin_installed": pid}
+
+@register("obsidian_install_plugin_url")
+def step_obsidian_install_plugin_url(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    url = params.get("url")
+    if not url:
+        raise ValueError("obsidian_install_plugin_url: 'url' is required")
+    dir_name = params.get("dir")
+    cfg = load_config()
+    vault = params.get("vault") or cfg.vault_path
+    mgr = ObsidianManager(vault)
+    pid = mgr.install_plugin_from_url(str(url), plugin_dir_name=dir_name)
+    return {"obsidian_plugin_installed": pid}
+
+@register("obsidian_set_theme")
+def step_obsidian_set_theme(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    theme = params.get("theme")
+    if not theme:
+        raise ValueError("obsidian_set_theme: 'theme' is required")
+    cfg = load_config()
+    vault = params.get("vault") or cfg.vault_path
+    mgr = ObsidianManager(vault)
+    mgr.set_theme(str(theme))
+    return {"obsidian_theme": theme}
+
+@register("obsidian_enable_snippet")
+def step_obsidian_enable_snippet(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    name = params.get("name") or params.get("file")
+    if not name:
+        raise ValueError("obsidian_enable_snippet: 'name' (or 'file') is required")
+    cfg = load_config()
+    vault = params.get("vault") or cfg.vault_path
+    mgr = ObsidianManager(vault)
+    mgr.enable_snippet(str(name))
+    return {"obsidian_snippet_enabled": str(name)}
+
+@register("obsidian_disable_snippet")
+def step_obsidian_disable_snippet(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    name = params.get("name") or params.get("file")
+    if not name:
+        raise ValueError("obsidian_disable_snippet: 'name' (or 'file') is required")
+    cfg = load_config()
+    vault = params.get("vault") or cfg.vault_path
+    mgr = ObsidianManager(vault)
+    mgr.disable_snippet(str(name))
+    return {"obsidian_snippet_disabled": str(name)}
+
+@register("obsidian_write_snippet")
+def step_obsidian_write_snippet(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    name = params.get("name") or params.get("file")
+    content = params.get("content")
+    if not name or content is None:
+        raise ValueError("obsidian_write_snippet: 'name' and 'content' are required")
+    cfg = load_config()
+    vault = params.get("vault") or cfg.vault_path
+    mgr = ObsidianManager(vault)
+    p = mgr.ensure_snippet_file(str(name), str(content))
+    return {"obsidian_snippet_path": str(p)}
+
+@register("obsidian_set_setting")
+def step_obsidian_set_setting(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    file = params.get("file") or params.get("settings_file") or "app.json"
+    path = params.get("path") or params.get("json_path")
+    value = params.get("value")
+    if not path:
+        raise ValueError("obsidian_set_setting: 'path' is required (dot-notation)")
+    cfg = load_config()
+    vault = params.get("vault") or cfg.vault_path
+    mgr = ObsidianManager(vault)
+    mgr.set_setting(str(file), str(path), value)
+    return {"obsidian_setting_updated": {"file": file, "path": path}}
 
 @register("transcribe_inbox")
 def step_transcribe_inbox(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:

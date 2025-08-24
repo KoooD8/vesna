@@ -1,0 +1,2 @@
+# Obsidian management package
+
