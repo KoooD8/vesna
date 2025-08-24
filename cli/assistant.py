@@ -1,6 +1,7 @@
 import sys
 import json
 import shlex
+import re
 from typing import Any, Dict, List
 from datetime import datetime
 
@@ -16,6 +17,158 @@ def plan(user_text: str) -> List[Dict[str, Any]]:
     steps: List[Dict[str, Any]] = []
 
     if not t:
+        return steps
+
+    # Obsidian management commands
+    if ("obsidian" in t) or ("обсидиан" in t):
+        # Extract command substring after prefix like "obsidian:" or the word itself
+        cmd_text = user_text
+        lt = user_text.lower()
+        for prefix in ["obsidian:", "обсидиан:"]:
+            i = lt.find(prefix)
+            if i >= 0:
+                cmd_text = user_text[i + len(prefix):].strip()
+                break
+        else:
+            # If starts with the word without colon, drop it
+            tokens = user_text.split(maxsplit=1)
+            if tokens and tokens[0].lower() in ("obsidian", "обсидиан"):
+                cmd_text = tokens[1] if len(tokens) > 1 else ""
+
+        def _split_segments(s: str) -> List[str]:
+            parts = re.split(r"[;，,]+", s)
+            out: List[str] = []
+            for p in parts:
+                p = p.strip()
+                if not p:
+                    continue
+                # further split on ' и ' if present and no URL
+                if " и " in p and ("http://" not in p and "https://" not in p):
+                    out.extend([x.strip() for x in p.split(" и ") if x.strip()])
+                else:
+                    out.append(p)
+            return out
+
+        def _parse_value(raw: str):
+            s = raw.strip().strip("\u00ab\u00bb\"'")
+            sl = s.lower()
+            if sl in ("true", "false", "yes", "no", "on", "off", "да", "нет", "вкл", "выкл"):
+                return sl in ("true", "yes", "on", "да", "вкл")
+            # int/float
+            try:
+                if re.fullmatch(r"[-+]?\d+", s):
+                    return int(s)
+                if re.fullmatch(r"[-+]?\d+\.\d+", s):
+                    return float(s)
+            except Exception:
+                pass
+            # JSON literal fallback
+            try:
+                return json.loads(s)
+            except Exception:
+                return s
+
+        def _maybe_setting_key(name: str) -> bool:
+            # Heuristic: treat as setting if contains dot or CamelCase letter
+            return ("." in name) or any(ch.isupper() for ch in name)
+
+        segments = _split_segments(cmd_text)
+        for seg in segments:
+            seg_l = seg.lower()
+            # backup
+            if re.search(r"\b(backup|бэкап)\b", seg_l):
+                steps.append({"name": "obsidian_backup", "params": {}})
+                continue
+            # list plugins
+            if ("список" in seg_l and "плагин" in seg_l) or ("list" in seg_l and "plugin" in seg_l):
+                steps.append({"name": "obsidian_list_plugins", "params": {}})
+                continue
+            # install from URL
+            m = re.search(r"https?://\S+\.zip", seg, flags=re.IGNORECASE)
+            if m and ("установ" in seg_l or "install" in seg_l):
+                steps.append({"name": "obsidian_install_plugin_url", "params": {"url": m.group(0)}})
+                continue
+            # install from zip path
+            if (".zip" in seg) and ("установ" in seg_l or "install" in seg_l):
+                # naive path extraction: last token ending with .zip
+                cand = None
+                for tok in re.split(r"\s+", seg):
+                    if tok.endswith(".zip"):
+                        cand = tok
+                if cand:
+                    steps.append({"name": "obsidian_install_plugin_zip", "params": {"zip": cand}})
+                    continue
+            # theme
+            if ("тему" in seg_l or "theme" in seg_l) and any(k in seg_l for k in ("постав", "установ", "switch", "set")):
+                # take last word(s) after the keyword 'тему'|'theme'
+                m2 = re.search(r"(?:тему|theme)\s+(.+)$", seg, flags=re.IGNORECASE)
+                theme = (m2.group(1).strip() if m2 else seg).strip().strip('"\'')
+                steps.append({"name": "obsidian_set_theme", "params": {"theme": theme}})
+                continue
+            # snippet enable/disable/write
+            if "сниппет" in seg_l or "snippet" in seg_l:
+                # write snippet: look for name: content
+                if any(k in seg_l for k in ("запиши", "создай", "write", "add")) and ":" in seg:
+                    name_part, content_part = seg.split(":", 1)
+                    # extract name after word 'сниппет'
+                    m3 = re.search(r"(?:сниппет|snippet)\s+([\w\-. ]+)", name_part, flags=re.IGNORECASE)
+                    name = (m3.group(1).strip() if m3 else "snippet.css")
+                    steps.append({"name": "obsidian_write_snippet", "params": {"name": name, "content": content_part.strip()}})
+                    continue
+                if any(k in seg_l for k in ("включ", "enable")):
+                    m4 = re.search(r"(?:сниппет|snippet)\s+([\w\-. ]+)$", seg, flags=re.IGNORECASE)
+                    name = (m4.group(1).strip() if m4 else seg)
+                    steps.append({"name": "obsidian_enable_snippet", "params": {"name": name}})
+                    continue
+                if any(k in seg_l for k in ("выключ", "disable")):
+                    m5 = re.search(r"(?:сниппет|snippet)\s+([\w\-. ]+)$", seg, flags=re.IGNORECASE)
+                    name = (m5.group(1).strip() if m5 else seg)
+                    steps.append({"name": "obsidian_disable_snippet", "params": {"name": name}})
+                    continue
+            # settings explicit
+            if ("настройк" in seg_l or "setting" in seg_l) and any(k in seg_l for k in ("установ", "постав", "set")):
+                # pattern: настройку key=value or key: value
+                m6 = re.search(r"(?:настройк\w*|setting)\s+([\w\.]+)\s*(?:=|:)\s*(.+)$", seg, flags=re.IGNORECASE)
+                if m6:
+                    key, val = m6.group(1), m6.group(2)
+                    steps.append({"name": "obsidian_set_setting", "params": {"file": "app.json", "path": key, "value": _parse_value(val)}})
+                    continue
+            # core plugin
+            if ("core" in seg_l or "базов" in seg_l or "ядро" in seg_l) and ("плагин" in seg_l or "plugin" in seg_l):
+                if any(k in seg_l for k in ("включ", "enable")):
+                    m7 = re.search(r"(?:core\s+plugin|базов\w*\s+плагин|ядро\s+плагин|core)\s+([\w\-\.]+)$", seg, flags=re.IGNORECASE)
+                    pid = (m7.group(1) if m7 else seg.split()[-1])
+                    steps.append({"name": "obsidian_enable_core_plugin", "params": {"id": pid}})
+                    continue
+                if any(k in seg_l for k in ("выключ", "disable")):
+                    m8 = re.search(r"(?:core\s+plugin|базов\w*\s+плагин|ядро\s+плагин|core)\s+([\w\-\.]+)$", seg, flags=re.IGNORECASE)
+                    pid = (m8.group(1) if m8 else seg.split()[-1])
+                    steps.append({"name": "obsidian_disable_core_plugin", "params": {"id": pid}})
+                    continue
+            # generic enable/disable: prefer plugin unless heuristic says setting
+            if any(k in seg_l for k in ("включ", "enable")):
+                m9 = re.search(r"(?:плагин|plugin)\s+([\w\-\.]+)$", seg, flags=re.IGNORECASE)
+                if m9:
+                    steps.append({"name": "obsidian_enable_plugin", "params": {"id": m9.group(1)}})
+                    continue
+                # no explicit word — disambiguate
+                tail = re.sub(r"^(включи\s+|enable\s+)", "", seg, flags=re.IGNORECASE).strip()
+                if _maybe_setting_key(tail):
+                    steps.append({"name": "obsidian_set_setting", "params": {"file": "app.json", "path": tail, "value": True}})
+                else:
+                    steps.append({"name": "obsidian_enable_plugin", "params": {"id": tail}})
+                continue
+            if any(k in seg_l for k in ("выключ", "disable")):
+                m10 = re.search(r"(?:плагин|plugin)\s+([\w\-\.]+)$", seg, flags=re.IGNORECASE)
+                if m10:
+                    steps.append({"name": "obsidian_disable_plugin", "params": {"id": m10.group(1)}})
+                    continue
+                tail = re.sub(r"^(выключи\s+|disable\s+)", "", seg, flags=re.IGNORECASE).strip()
+                if _maybe_setting_key(tail):
+                    steps.append({"name": "obsidian_set_setting", "params": {"file": "app.json", "path": tail, "value": False}})
+                else:
+                    steps.append({"name": "obsidian_disable_plugin", "params": {"id": tail}})
+                continue
         return steps
 
     # Шаблоны: ежедневка и создание заметок
