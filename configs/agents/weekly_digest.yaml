@@ -1,5 +1,6 @@
 # Weekly research digest pipeline config
 id: weekly_digest
+enabled: true
 schedule:
   cron: "0 19 * * 5"  # every Friday 19:00
 pipeline:

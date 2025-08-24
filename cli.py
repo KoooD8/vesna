@@ -34,7 +34,9 @@ def main():
 
     if args.cmd == "run-schedule":
         import subprocess, sys
-        cmd = [sys.executable, "scheduler.py", "--agents", args.agents]
+        from pathlib import Path
+        base = Path(__file__).resolve().parent
+        cmd = [sys.executable, str(base / "scheduler.py"), "--agents", args.agents]
         if args.timezone:
             cmd += ["--timezone", args.timezone]
         subprocess.run(cmd, check=True)

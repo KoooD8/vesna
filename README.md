@@ -15,6 +15,27 @@
 - ingest.py: конвейер инжеста из Obsidian в Qdrant.
 - vector_store.py: обертка над Qdrant и SentenceTransformers.
 - setup.sh / run.sh: установка и запуск.
+- ai.py: единый CLI-агрегатор команд.
+
+Быстрый старт (ai CLI)
+- Примеры:
+  - ai health
+  - ai search web "your query" --save
+  - ai summarize topk "your query" --k 10 --title "TopK"
+  - ai agent run --config configs/agents/core.yaml --id core.transcribe
+  - ai schedule start --agents configs/agents/core.yaml --timezone Europe/Kyiv
+  - ai docker up | up-all | down | logs | health
+  - ai config show | ai config init --vault /path/to/Obsidian
+  - Управление агентами:
+    - ai agents list --file configs/agents/core.yaml --next --timezone Europe/Kyiv
+    - ai agents enable --id core.transcribe --file configs/agents/core.yaml
+    - ai agents disable --id core.transcribe --file configs/agents/core.yaml
+    - ai agents new --id my.new.agent --file configs/agents/my.new.agent.yaml --schedule "0 9 * * *" --description "Daily morning run"
+    - ai agents validate --file configs/agents/core.yaml
+- Через Makefile:
+  - make ai ARGS='health'
+  - make ai ARGS='search web "your query" --save'
+  - make ai ARGS='agents list --file configs/agents/core.yaml'
 
 Установка
 1) ./setup.sh

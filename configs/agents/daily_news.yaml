@@ -1,5 +1,6 @@
 # Daily news summary pipeline config
 id: daily_news
+enabled: true
 schedule:
   cron: "30 8 * * *"  # every day 08:30
 pipeline:

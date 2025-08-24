@@ -10,12 +10,8 @@ DEFAULT_CONFIG_PATH = os.environ.get(
     "/Users/onopriychukpavel/Library/Mobile Documents/iCloud~md~obsidian/Documents/Version1/ai_agents_stack.config.yaml",
 )
 
-# Дефолтный путь к Obsidian Vault теперь берётся из переменной окружения,
-# чтобы избежать жёсткого хардкода в исходниках.
-DEFAULT_VAULT_ENV = os.environ.get(
-    "AI_STACK_DEFAULT_VAULT",
-    "/Users/onopriychukpavel/Library/Mobile Documents/iCloud~md~obsidian/Documents/Version1",
-)
+# Дефолтный путь к Obsidian Vault берётся из переменной окружения при каждом вызове,
+# чтобы корректно работать в тестах/динамических окружениях.
 
 
 @dataclass
@@ -34,7 +30,10 @@ class AppConfig:
 
     @staticmethod
     def default_vault() -> str:
-        return DEFAULT_VAULT_ENV
+        return os.environ.get(
+            "AI_STACK_DEFAULT_VAULT",
+            "/Users/onopriychukpavel/Library/Mobile Documents/iCloud~md~obsidian/Documents/Version1",
+        )
 
 
 def load_config(path: Optional[str] = None) -> AppConfig:

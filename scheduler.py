@@ -6,6 +6,7 @@ Usage:
 """
 import argparse
 import time
+import os
 import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.executors.pool import ThreadPoolExecutor
@@ -42,8 +43,14 @@ def main():
     sched = BackgroundScheduler(jobstores=jobstores, executors=executors, job_defaults=job_defaults, timezone=tz)
 
     for ag in agents:
+        # skip disabled agents
+        if ag.get("enabled") is False:
+            print(f"Skip {ag.get('id')} (disabled)")
+            continue
         cron = ag.get("schedule")
-        if not cron:
+        if isinstance(cron, dict):
+            cron = cron.get("cron")
+        if not cron or not isinstance(cron, str):
             continue
         fields = cron.split()
         if len(fields) != 5:

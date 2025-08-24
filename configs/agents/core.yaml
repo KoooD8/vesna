@@ -2,6 +2,7 @@
 
 - id: core.health_daily
   name: Health Daily
+  enabled: true
   schedule: "0 8 * * *"  # for a future scheduler
   pipeline:
     - step: health_check
@@ -11,6 +12,7 @@
 
 - id: core.notes_daily
   name: Notes Daily Stub
+  enabled: true
   pipeline:
     - step: create_daily_note
       with:
@@ -19,6 +21,7 @@
 
 - id: core.research_daily
   name: Research Daily
+  enabled: true
   schedule: "0 9 * * *"
   inputs:
     queries: ["ai research", "vector databases"]
@@ -38,6 +41,7 @@
 
 - id: core.transcription_inbox
   name: Transcription Inbox
+  enabled: true
   pipeline:
     - step: transcribe_inbox
       with:
@@ -45,6 +49,7 @@
 
 - id: core.transcription_daily
   name: Transcription Daily
+  enabled: true
   schedule: "0 20 * * *"  # каждый день в 20:00
   pipeline:
     - step: transcribe_inbox_whisper
