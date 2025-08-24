@@ -9,14 +9,42 @@ from orchestrator.registry import register
 from config import load_config
 
 from vector_store import VectorStore
-from agents.web_research.working_agent import WorkingWebAgent
+# Lazy import web agent inside functions to avoid optional deps at import time
 from agents.obsidian.manager import ObsidianManager
 
 def _frontmatter(props: Dict[str, Any]) -> str:
-    """Build YAML frontmatter using safe YAML dump with proper quoting."""
-    import yaml
-    dumped = yaml.safe_dump(props, allow_unicode=True, sort_keys=False).rstrip()
-    return f"---\n{dumped}\n---\n"
+    """Build YAML frontmatter. Uses PyYAML if available, falls back to manual emitter."""
+    try:
+        import yaml  # type: ignore
+        dumped = yaml.safe_dump(props, allow_unicode=True, sort_keys=False).rstrip()
+        return f"---\n{dumped}\n---\n"
+    except Exception:
+        # Manual minimal emitter
+        def _emit_val(v):
+            if isinstance(v, (int, float)):
+                return str(v)
+            if isinstance(v, bool):
+                return "true" if v else "false"
+            s = str(v)
+            # quote if contains colon or leading/trailing spaces
+            if (":" in s) or (s.strip() != s):
+                return f"'{s}'"
+            return s
+        lines = ["---"]
+        for k, v in props.items():
+            if isinstance(v, list):
+                # emit as flow style if short, else block style
+                if all(isinstance(x, (str, int, float, bool)) for x in v) and len(v) <= 5:
+                    arr = ", ".join(_emit_val(x) for x in v)
+                    lines.append(f"{k}: [{arr}]")
+                else:
+                    lines.append(f"{k}:")
+                    for x in v:
+                        lines.append(f"- {_emit_val(x)}")
+            else:
+                lines.append(f"{k}: {_emit_val(v)}")
+        lines.append("---")
+        return "\n".join(lines) + "\n"
 
 
 def _normalize_text(text: str) -> str:
@@ -222,9 +250,9 @@ def step_health_check(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, 
     ok = True
     issues = []
     try:
+        from agents.web_research.working_agent import WorkingWebAgent  # type: ignore
         _ = WorkingWebAgent(timeout=3)
     except Exception as e:
-        ok = False
         issues.append(f"web_agent: {e}")
     base, _ = _vault()
     try:
@@ -243,6 +271,10 @@ def step_health_check(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, 
 @register("search_web")
 def step_search_web(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
     queries = params.get("queries") or [params.get("query")] if params.get("query") else []
+    try:
+        from agents.web_research.working_agent import WorkingWebAgent  # type: ignore
+    except Exception as e:
+        return {"error": f"web agent unavailable: {e}", "result": {"results": [], "count": 0, "timestamp": datetime.now().isoformat()}}
     agent = WorkingWebAgent(timeout=float(params.get("timeout", 10.0)), max_results=int(params.get("max_results", 5)))
     merged = {"agent": "Working Web Research Agent", "timestamp": datetime.now().isoformat(), "results": []}
     for q in queries:
@@ -636,32 +668,86 @@ def step_obsidian_find(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str,
 @register("ingest_vault_all")
 def step_ingest_vault_all(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
     """Recursively ingest all *.md files from entire Vault into Qdrant.
-    Optional params: exclude (list[str]), batch_k (ignored here), and limit per file size is handled by chunking in ingest-like fashion.
+    Optional params: exclude (list[str]). Frontmatter (YAML) is parsed if present to extract tags, keywords, date.
+    Keywords are also injected into chunk text to improve relevance.
     """
     from vector_store import VectorStore
     from ingest import chunk_text
     from config import load_config
+    try:
+        import yaml  # type: ignore
+    except Exception:
+        yaml = None  # type: ignore
     cfg = load_config()
-    mgr = ObsidianManager(cfg.vault_path)
     exclude = set(map(str.lower, params.get("exclude") or [".trash", ".obsidian", "Attachments", "attachments"]))
     vs = VectorStore()
     texts = []
     metas = []
     total_files = 0
-    for p in Path(cfg.vault_path).rglob("*.md"):
+    base = Path(cfg.vault_path)
+    for p in base.rglob("*.md"):
         if not p.is_file():
             continue
-        parts = set(map(str.lower, p.relative_to(Path(cfg.vault_path)).parts))
+        parts = set(map(str.lower, p.relative_to(base).parts))
         if any(d in parts for d in exclude):
             continue
         try:
             content = p.read_text(encoding="utf-8")
         except Exception:
             continue
-        chunks = chunk_text(content)
+        fm: Dict[str, Any] = {}
+        body = content
+        if content.startswith("---\n"):
+            end = content.find("\n---\n", 4)
+            if end != -1:
+                fm_text = content[4:end]
+                body = content[end + 5:]
+                if yaml is not None:
+                    try:
+                        data = yaml.safe_load(fm_text) or {}
+                        if isinstance(data, dict):
+                            fm = data
+                    except Exception:
+                        fm = {}
+                else:
+                    # minimal parse for keywords/tags/date when PyYAML is not available
+                    import re as _re
+                    def _parse_list(key: str):
+                        m = _re.search(rf"^{key}\s*:\s*\[(.*?)\]", fm_text, flags=_re.MULTILINE)
+                        if m:
+                            return [s.strip().strip("'\"") for s in m.group(1).split(',') if s.strip()]
+                        return []
+                    def _parse_str(key: str):
+                        m = _re.search(rf"^{key}\s*:\s*['\"]?([^\n'\"]+)['\"]?\s*$", fm_text, flags=_re.MULTILINE)
+                        return m.group(1).strip() if m else ""
+                    fm = {
+                        "tags": _parse_list("tags"),
+                        "keywords": _parse_list("keywords"),
+                        "date": _parse_str("date"),
+                    }
+        chunks = chunk_text(body)
         if not chunks:
             continue
         total_files += 1
+        # assemble fm-derived fields
+        tags = []
+        keywords = []
+        date = ""
+        try:
+            tv = fm.get("tags") if isinstance(fm, dict) else None
+            if isinstance(tv, list):
+                tags = [str(x) for x in tv]
+            kv = fm.get("keywords") if isinstance(fm, dict) else None
+            if isinstance(kv, list):
+                keywords = [str(x) for x in kv]
+            dv = fm.get("date") if isinstance(fm, dict) else None
+            if isinstance(dv, str):
+                date = dv[:10]
+        except Exception:
+            pass
+        if keywords:
+            prefix = "Keywords: " + ", ".join(keywords) + "\n\n"
+            chunks = [prefix + c for c in chunks]
         import hashlib
         for idx, ch in enumerate(chunks):
             chunk_hash = hashlib.md5(f"{p.name}|{idx}|{ch}".encode("utf-8")).hexdigest()
@@ -670,11 +756,13 @@ def step_ingest_vault_all(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[s
                 "chunk_id": chunk_hash,
                 "source": "obsidian_md",
                 "file": p.name,
-                "vault": Path(cfg.vault_path).name,
+                "vault": base.name,
                 "title": p.stem,
                 "domain": "",
                 "url": "",
-                "date": "",
+                "date": date,
+                "tags": tags,
+                "keywords": keywords,
             })
     upserted = 0
     if texts:
@@ -822,6 +910,55 @@ def step_obsidian_write_snippet(params: Dict[str, Any], ctx: Dict[str, Any]) -> 
     mgr = ObsidianManager(vault)
     p = mgr.ensure_snippet_file(str(name), str(content))
     return {"obsidian_snippet_path": str(p)}
+
+@register("obsidian_update_frontmatter")
+def step_obsidian_update_frontmatter(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Update frontmatter keys in a markdown note.
+    Params:
+      file: relative path to note
+      add_keywords: list[str] (will be merged with existing)
+      add_tags: list[str] (merged)
+      set: dict (direct set for simple keys)
+    """
+    base, _ = _vault()
+    file = params.get("file") or params.get("path")
+    if not file:
+        raise ValueError("obsidian_update_frontmatter: 'file' is required")
+    p = (base / str(file)).resolve()
+    if not str(p).startswith(str(base.resolve())):
+        raise ValueError("Path outside vault")
+    if not p.exists():
+        raise FileNotFoundError(str(file))
+    existing = p.read_text(encoding="utf-8")
+    # Extract existing keywords to merge
+    import yaml
+    fm_existing: Dict[str, Any] = {}
+    if existing.startswith("---\n"):
+        end = existing.find("\n---\n", 4)
+        if end != -1:
+            fm_text = existing[4:end]
+            try:
+                data = yaml.safe_load(fm_text) or {}
+                if isinstance(data, dict):
+                    fm_existing = data
+            except Exception:
+                fm_existing = {}
+    old_kw = set(map(str, (fm_existing.get("keywords") or []))) if isinstance(fm_existing.get("keywords"), list) else set()
+    add_kw = set(map(str, (params.get("add_keywords") or [])))
+    merged_kw = sorted(old_kw | add_kw) if (old_kw or add_kw) else None
+    updater: Dict[str, Any] = {"last_modified": datetime.now().isoformat(timespec='seconds')}
+    if merged_kw is not None:
+        updater["keywords"] = merged_kw
+    add_tags = params.get("add_tags") or []
+    if add_tags:
+        updater["tags"] = list(map(str, add_tags))
+    set_dict = params.get("set") or {}
+    if isinstance(set_dict, dict):
+        for k, v in set_dict.items():
+            updater[str(k)] = v
+    updated = _update_frontmatter_block(existing, updater)
+    p.write_text(updated, encoding="utf-8")
+    return {"updated": str(p)}
 
 @register("obsidian_set_setting")
 def step_obsidian_set_setting(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:

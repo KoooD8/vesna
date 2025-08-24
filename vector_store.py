@@ -122,6 +122,8 @@ class VectorStore:
                 ("domain", qm.PayloadSchemaType.KEYWORD),
                 ("date", qm.PayloadSchemaType.TEXT),
                 ("id", qm.PayloadSchemaType.KEYWORD),
+                ("tags", qm.PayloadSchemaType.KEYWORD),
+                ("keywords", qm.PayloadSchemaType.KEYWORD),
             ):
                 try:
                     if hasattr(self.client, "create_payload_index"):

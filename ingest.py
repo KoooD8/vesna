@@ -25,6 +25,12 @@ import argparse
 from pathlib import Path
 from typing import Dict, Any, List, Iterable, Tuple, Optional
 
+import re
+try:
+    import yaml  # for frontmatter parsing
+except Exception:
+    yaml = None  # will handle gracefully
+
 from vector_store import VectorStore, VectorConfig
 from config import load_config
 
@@ -126,6 +132,28 @@ def iter_sources_markdown(src_dir: Path, limit: Optional[int] = None) -> Iterabl
             continue
 
 
+def _split_frontmatter(text: str) -> Tuple[Dict[str, Any], str]:
+    """Extract YAML frontmatter if present and return (fm_dict, body).
+    If pyyaml is unavailable, return empty dict and original text.
+    """
+    if not text.startswith("---\n"):
+        return {}, text
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return {}, text
+    fm_text = text[4:end]
+    body = text[end + 5:]
+    if yaml is None:
+        return {}, body
+    try:
+        data = yaml.safe_load(fm_text) or {}
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:
+        data = {}
+    return data, body
+
+
 def chunk_text(text: str, max_len: int = 800) -> List[str]:
     """Naive chunking by paragraphs to keep MiniLM within reasonable size."""
     parts: List[str] = []
@@ -203,11 +231,32 @@ def main():
         print(f"Scanning Markdown in: {src_dir}")
         for p, text in iter_sources_markdown(src_dir, limit=args.limit):
             md_files += 1
-            chunks = chunk_text(text)
+            fm, body = _split_frontmatter(text)
+            chunks = chunk_text(body)
             if chunks:
                 # Формируем расширенный payload для чанков
                 import hashlib
                 metas = []
+                # prepare keywords/tags/date
+                tags = []
+                keywords = []
+                date = ""
+                try:
+                    tv = fm.get("tags") if isinstance(fm, dict) else None
+                    if isinstance(tv, list):
+                        tags = [str(x) for x in tv]
+                    kv = fm.get("keywords") if isinstance(fm, dict) else None
+                    if isinstance(kv, list):
+                        keywords = [str(x) for x in kv]
+                    dv = fm.get("date") if isinstance(fm, dict) else None
+                    if isinstance(dv, str):
+                        date = dv[:10]
+                except Exception:
+                    pass
+                # inject keywords into chunk text to improve semantic search
+                if keywords:
+                    prefix = "Keywords: " + ", ".join(keywords) + "\n\n"
+                    chunks = [prefix + c for c in chunks]
                 for idx, chunk in enumerate(chunks):
                     chunk_hash = hashlib.md5(f"{p.name}|{idx}|{chunk}".encode("utf-8")).hexdigest()
                     metas.append({
@@ -218,7 +267,9 @@ def main():
                         "title": p.stem,
                         "domain": "",
                         "url": "",
-                        "date": "",
+                        "date": date,
+                        "tags": tags,
+                        "keywords": keywords,
                     })
                 md_chunks += len(chunks)
                 t_up0 = time.time()

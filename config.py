@@ -2,7 +2,10 @@ import os
 from dataclasses import dataclass
 from typing import Dict, Any, Optional
 
-import yaml
+try:
+    import yaml  # type: ignore
+except Exception:
+    yaml = None  # type: ignore
 
 # Путь к YAML-конфигу (может переопределяться env)
 DEFAULT_CONFIG_PATH = os.environ.get(
@@ -50,14 +53,15 @@ def load_config(path: Optional[str] = None) -> AppConfig:
         },
     }
     try:
-        with open(cfg_path, "r", encoding="utf-8") as f:
-            y = yaml.safe_load(f) or {}
-        # Merge shallow
-        if isinstance(y, dict):
-            if "vault_path" in y:
-                data["vault_path"] = str(y["vault_path"])
-            if isinstance(y.get("folders"), dict):
-                data["folders"].update({k: str(v) for k, v in y["folders"].items()})  # type: ignore
+        if yaml is not None:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                y = yaml.safe_load(f) or {}
+            # Merge shallow
+            if isinstance(y, dict):
+                if "vault_path" in y:
+                    data["vault_path"] = str(y["vault_path"])
+                if isinstance(y.get("folders"), dict):
+                    data["folders"].update({k: str(v) for k, v in y["folders"].items()})  # type: ignore
     except Exception:
         # Конфиг может отсутствовать — используем значения по умолчанию
         pass
