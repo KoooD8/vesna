@@ -13,6 +13,7 @@ import io
 import json
 import shutil
 import tempfile
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -47,6 +48,15 @@ class ObsidianManager:
         self.paths.snippets.mkdir(parents=True, exist_ok=True)
 
     # -------- utils --------
+    def _safe_rel(self, rel: str) -> Path:
+        """Resolve a relative path inside the vault and ensure it stays within vault root."""
+        p = (self.paths.vault / rel).expanduser()
+        p = p.resolve()
+        vault_resolved = self.paths.vault.resolve()
+        if not str(p).startswith(str(vault_resolved)):
+            raise ValueError(f"Path outside vault: {p}")
+        return p
+
     @staticmethod
     def _atomic_write(path: Path, data: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -249,4 +259,98 @@ class ObsidianManager:
         p = self.ensure_snippet_file(name, content)
         self.enable_snippet(Path(p).name)
         return p
+
+    # -------- notes: list/read/write/append/search --------
+    def _default_excludes(self) -> List[str]:
+        env = os.environ.get("AI_STACK_OBSIDIAN_EXCLUDE", "")
+        extra = [e.strip() for e in re.split(r"[,;]", env) if e.strip()] if env else []
+        base = [".trash", ".obsidian", "Attachments", "attachments"]
+        return list(dict.fromkeys(base + extra))
+
+    def list_notes(self, subdir: Optional[str] = None, pattern: str = "*.md", recursive: bool = True, exclude_dirs: Optional[List[str]] = None) -> List[str]:
+        base = self.paths.vault if not subdir else self._safe_rel(subdir)
+        ex = set(exclude_dirs or self._default_excludes())
+        out: List[str] = []
+        if recursive:
+            for p in base.rglob(pattern):
+                if not p.is_file():
+                    continue
+                # skip excluded dirs
+                parts = set(map(str.lower, p.relative_to(self.paths.vault).parts))
+                if any(d.lower() in parts for d in ex):
+                    continue
+                out.append(str(p))
+        else:
+            for p in base.glob(pattern):
+                if p.is_file():
+                    out.append(str(p))
+        return sorted(out)
+
+    def read_note(self, rel_path: str) -> str:
+        p = self._safe_rel(rel_path)
+        if not p.exists() or not p.is_file():
+            raise FileNotFoundError(rel_path)
+        return p.read_text(encoding="utf-8")
+
+    def write_note(self, rel_path: str, content: str, ensure_parents: bool = True) -> str:
+        p = self._safe_rel(rel_path)
+        if ensure_parents:
+            p.parent.mkdir(parents=True, exist_ok=True)
+        self._atomic_write(p, content)
+        return str(p)
+
+    def append_note(self, rel_path: str, content: str, header: Optional[str] = None) -> str:
+        p = self._safe_rel(rel_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        existing = p.read_text(encoding="utf-8") if p.exists() else ""
+        add = content if not header else f"\n\n## {header}\n\n{content}\n"
+        self._atomic_write(p, (existing.rstrip() + add))
+        return str(p)
+
+    def search_in_notes(self, query: str, subdir: Optional[str] = None, regex: bool = False, case_sensitive: bool = False, limit: int = 100, exclude_dirs: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        base = self.paths.vault if not subdir else self._safe_rel(subdir)
+        ex = set(exclude_dirs or self._default_excludes())
+        results: List[Dict[str, Any]] = []
+        flags = 0 if case_sensitive else re.IGNORECASE
+        rx = re.compile(query, flags) if regex else None
+        for p in base.rglob("*.md"):
+            if not p.is_file():
+                continue
+            parts = set(map(str.lower, p.relative_to(self.paths.vault).parts))
+            if any(d.lower() in parts for d in ex):
+                continue
+            try:
+                text = p.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            if rx:
+                if not rx.search(text):
+                    continue
+            else:
+                if (query if case_sensitive else query.lower()) not in (text if case_sensitive else text.lower()):
+                    continue
+            # include few context lines
+            lines = text.splitlines()
+            snippet = ""
+            if rx:
+                m = rx.search(text)
+                if m:
+                    pos = m.start()
+            else:
+                pos = (text if case_sensitive else text.lower()).find(query if case_sensitive else query.lower())
+            # find line number
+            ln = 0
+            if pos is not None and pos >= 0:
+                sofar = 0
+                for i, line in enumerate(lines):
+                    sofar += len(line) + 1
+                    if sofar >= pos:
+                        ln = i
+                        break
+                s = max(0, ln - 2); e = min(len(lines), ln + 3)
+                snippet = "\n".join(lines[s:e])
+            results.append({"file": str(p), "line": ln + 1, "snippet": snippet})
+            if len(results) >= limit:
+                break
+        return results
 

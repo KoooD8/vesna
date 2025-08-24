@@ -521,6 +521,166 @@ def step_create_weekly_note(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict
     return {"weekly_path": str(p)}
 
 # ---------------- Obsidian management steps ----------------
+@register("obsidian_list_notes")
+def step_obsidian_list_notes(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    cfg = load_config()
+    vault = params.get("vault") or cfg.vault_path
+    mgr = ObsidianManager(vault)
+    subdir = params.get("subdir")
+    pattern = params.get("pattern", "*.md")
+    recursive = bool(params.get("recursive", True))
+    exclude = params.get("exclude") or None
+    files = mgr.list_notes(subdir=subdir, pattern=pattern, recursive=recursive, exclude_dirs=exclude)
+    return {"obsidian_notes": files, "count": len(files)}
+
+@register("obsidian_read_note")
+def step_obsidian_read_note(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    file = params.get("file") or params.get("path")
+    if not file:
+        raise ValueError("obsidian_read_note: 'file' is required (relative to vault)")
+    cfg = load_config()
+    mgr = ObsidianManager(cfg.vault_path)
+    content = mgr.read_note(str(file))
+    return {"obsidian_note_path": str(file), "obsidian_note_content": content}
+
+@register("obsidian_write_note")
+def step_obsidian_write_note(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    file = params.get("file") or params.get("path")
+    raw = params.get("content") or ""
+    if not file:
+        raise ValueError("obsidian_write_note: 'file' is required")
+    # optional frontmatter template and auto tag/wikilinks
+    add_frontmatter = bool(params.get("frontmatter", True))
+    title = params.get("title")
+    body = _normalize_text(str(raw))
+    fm = ""
+    if add_frontmatter:
+        # infer title from file if not provided
+        if not title:
+            try:
+                title = Path(str(file)).stem
+            except Exception:
+                title = "Note"
+        tags = _auto_tags(body)
+        fm = _frontmatter({
+            "date": datetime.now().strftime('%Y-%m-%d'),
+            "Title": title,
+            "Categories": params.get("category", "notes"),
+            "tags": sorted(set(tags)),
+            "cssclasses": [],
+            "created_at": datetime.now().isoformat(timespec='seconds'),
+            "last_modified": datetime.now().isoformat(timespec='seconds'),
+        })
+    # wikilinks from body
+    links = _extract_wikilinks(body)
+    if links:
+        links_md = "\n".join(f"- [[{t}]]" for t in links)
+        body = body.rstrip() + f"\n\n## Ссылки\n\n{links_md}\n"
+    content = (fm + (f"# {title}\n\n" if title and add_frontmatter else "") + body + ("\n" if not body.endswith("\n") else ""))
+    cfg = load_config()
+    mgr = ObsidianManager(cfg.vault_path)
+    path = mgr.write_note(str(file), content)
+    try:
+        if links and title:
+            _ensure_wikilink_pages(links, Path(str(file)).stem, title)
+    except Exception:
+        pass
+    return {"obsidian_note_written": path}
+
+@register("obsidian_append_note")
+def step_obsidian_append_note(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    file = params.get("file") or params.get("path")
+    raw = params.get("content") or ""
+    header = params.get("header")
+    if not file:
+        raise ValueError("obsidian_append_note: 'file' is required")
+    # normalize and enrich
+    body = _normalize_text(str(raw))
+    links = _extract_wikilinks(body)
+    if links:
+        links_md = "\n".join(f"- [[{t}]]" for t in links)
+        body = body.rstrip() + f"\n\n### Ссылки\n\n{links_md}\n"
+    cfg = load_config()
+    mgr = ObsidianManager(cfg.vault_path)
+    path = mgr.append_note(str(file), body, header=str(header) if header else None)
+    try:
+        # best effort backlink to this file title
+        title = Path(str(file)).stem
+        _ensure_wikilink_pages(links, title, title)
+    except Exception:
+        pass
+    return {"obsidian_note_appended": path}
+
+@register("obsidian_find")
+def step_obsidian_find(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    from config import load_config
+    query = params.get("query")
+    if not query:
+        raise ValueError("obsidian_find: 'query' is required")
+    cfg = load_config()
+    mgr = ObsidianManager(cfg.vault_path)
+    results = mgr.search_in_notes(
+        query=str(query),
+        subdir=params.get("subdir"),
+        regex=bool(params.get("regex", False)),
+        case_sensitive=bool(params.get("case_sensitive", False)),
+        limit=int(params.get("limit", 100)),
+        exclude_dirs=params.get("exclude") or None,
+    )
+    return {"obsidian_find": results, "count": len(results)}
+
+@register("ingest_vault_all")
+def step_ingest_vault_all(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively ingest all *.md files from entire Vault into Qdrant.
+    Optional params: exclude (list[str]), batch_k (ignored here), and limit per file size is handled by chunking in ingest-like fashion.
+    """
+    from vector_store import VectorStore
+    from ingest import chunk_text
+    from config import load_config
+    cfg = load_config()
+    mgr = ObsidianManager(cfg.vault_path)
+    exclude = set(map(str.lower, params.get("exclude") or [".trash", ".obsidian", "Attachments", "attachments"]))
+    vs = VectorStore()
+    texts = []
+    metas = []
+    total_files = 0
+    for p in Path(cfg.vault_path).rglob("*.md"):
+        if not p.is_file():
+            continue
+        parts = set(map(str.lower, p.relative_to(Path(cfg.vault_path)).parts))
+        if any(d in parts for d in exclude):
+            continue
+        try:
+            content = p.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        chunks = chunk_text(content)
+        if not chunks:
+            continue
+        total_files += 1
+        import hashlib
+        for idx, ch in enumerate(chunks):
+            chunk_hash = hashlib.md5(f"{p.name}|{idx}|{ch}".encode("utf-8")).hexdigest()
+            texts.append(ch)
+            metas.append({
+                "chunk_id": chunk_hash,
+                "source": "obsidian_md",
+                "file": p.name,
+                "vault": Path(cfg.vault_path).name,
+                "title": p.stem,
+                "domain": "",
+                "url": "",
+                "date": "",
+            })
+    upserted = 0
+    if texts:
+        upserted = vs.upsert_texts(texts, metas)
+    return {"vault_files": total_files, "upserted": upserted}
+
 @register("obsidian_backup")
 def step_obsidian_backup(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
     from config import load_config

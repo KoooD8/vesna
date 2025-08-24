@@ -15,5 +15,8 @@ dependencies = []
 ai = "ai:main"
 
 [tool.setuptools]
-packages = []
+# Discover Python packages under the current directory
+packages = { find = { where = ["."], include = ["agents*", "orchestrator*", "pipelines*"], exclude = ["tests*"] } }
+# Explicitly include top-level modules that are not in a package directory
+py-modules = ["config", "ingest", "vector_store"]
 

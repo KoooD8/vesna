@@ -75,6 +75,49 @@ def plan(user_text: str) -> List[Dict[str, Any]]:
         segments = _split_segments(cmd_text)
         for seg in segments:
             seg_l = seg.lower()
+            # list notes
+            if ("список" in seg_l and "замет" in seg_l) or ("list" in seg_l and "notes" in seg_l):
+                steps.append({"name": "obsidian_list_notes", "params": {}})
+                continue
+            # read note
+            if any(k in seg_l for k in ("прочитай", "прочесть", "покажи", "read", "show")) and (".md" in seg_l or "notes/" in seg_l or "note" in seg_l):
+                m = re.search(r"(?:прочитай|read|покажи)\s+(.+\.md)$", seg, flags=re.IGNORECASE)
+                file = (m.group(1).strip() if m else seg.split()[-1])
+                steps.append({"name": "obsidian_read_note", "params": {"file": file}})
+                continue
+            # write/create note
+            if any(k in seg_l for k in ("создай", "создать", "запиши", "создай заметку", "write note", "create note")):
+                # pattern: ... path.md: content
+                if ":" in seg:
+                    left, right = seg.split(":", 1)
+                    m = re.search(r"([\w\-/ .]+\.md)$", left.strip())
+                    file = (m.group(1).strip() if m else "Notes/New Note.md")
+                    steps.append({"name": "obsidian_write_note", "params": {"file": file, "content": right.strip()}})
+                else:
+                    # fallback: create empty note at path
+                    m = re.search(r"([\w\-/ .]+\.md)$", seg)
+                    file = (m.group(1).strip() if m else "Notes/New Note.md")
+                    steps.append({"name": "obsidian_write_note", "params": {"file": file, "content": ""}})
+                continue
+            # append note
+            if any(k in seg_l for k in ("допиши", "append")) and ":" in seg:
+                left, right = seg.split(":", 1)
+                m = re.search(r"([\w\-/ .]+\.md)$", left.strip())
+                file = (m.group(1).strip() if m else "Notes/Journal/Daily/daily-" + datetime.now().strftime('%Y-%m-%d') + ".md")
+                steps.append({"name": "obsidian_append_note", "params": {"file": file, "content": right.strip()}})
+                continue
+            # find in notes
+            if any(k in seg_l for k in ("найди", "поиск", "find", "search")):
+                q = seg
+                m = re.search(r"(?:найди|find|search)\s+(.+)$", seg, flags=re.IGNORECASE)
+                if m:
+                    q = m.group(1)
+                steps.append({"name": "obsidian_find", "params": {"query": q.strip(), "limit": 50}})
+                continue
+            # ingest entire vault
+            if any(k in seg_l for k in ("проиндексируй", "индексируй", "index", "ingest")) and any(k in seg_l for k in ("вольт", "vault", "весь")):
+                steps.append({"name": "ingest_vault_all", "params": {}})
+                continue
             # backup
             if re.search(r"\b(backup|бэкап)\b", seg_l):
                 steps.append({"name": "obsidian_backup", "params": {}})
@@ -172,11 +215,11 @@ def plan(user_text: str) -> List[Dict[str, Any]]:
         return steps
 
     # Шаблоны: ежедневка и создание заметок
-    if any(k in t for k in ["ежеднев", "daily", "дневник", "создай заметку", "создать заметку", "заметка сегодня"]):
+    if any(k in t for k in ["ежеднев", "daily", "дневник", "создай заметку", "создать заметку", "заметка сегодня", "сегодняшн"]):
         # Извлечём содержимое после ключевых слов
         content = user_text  # весь текст как содержимое (включая переносы)
         # Найдём первое вхождение ключевого слова и возьмём весь текст после него (без принудительного обрезания по разделителям)
-        for keyword in ["создай заметку", "создать заметку", "заметка сегодня", "ежеднев", "daily", "дневник"]:
+        for keyword in ["создай заметку", "создать заметку", "заметка сегодня", "сегодняшн", "ежеднев", "daily", "дневник"]:
             if keyword in t:
                 idx = user_text.lower().find(keyword)
                 if idx >= 0:
@@ -185,8 +228,19 @@ def plan(user_text: str) -> List[Dict[str, Any]]:
                     after_keyword = after_keyword.lstrip()
                     if after_keyword[:1] in ".:!":
                         after_keyword = after_keyword[1:].lstrip()
-                    if after_keyword:
-                        content = after_keyword
+                    # Доп. очистка для форм "сегодняшнюю заметку ...": уберём начальные слова "заметк*"
+                    ak = after_keyword.lstrip()
+                    if ak.lower().startswith("заметк"):
+                        # обрежем до запятой/двоеточия, если есть
+                        if "," in ak:
+                            ak = ak.split(",", 1)[1].lstrip()
+                        elif ":" in ak:
+                            ak = ak.split(":", 1)[1].lstrip()
+                        else:
+                            # просто уберём первое слово
+                            ak = " ".join(ak.split()[1:])
+                    if ak:
+                        content = ak
                 break
         
         title = f"Daily {datetime.now().strftime('%Y-%m-%d')}"
