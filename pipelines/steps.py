@@ -515,6 +515,97 @@ def step_append_daily_note(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[
         p.write_text(fm + body, encoding="utf-8")
     return {"daily_path": str(p), "appended": True}
 
+@register("obsidian_add_task")
+def step_obsidian_add_task(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Add a checkbox task into today's daily note under '## Задачи'.
+    Params:
+      text: task text (required)
+      due: optional date string (e.g., 2025-08-24, 'сегодня', 'завтра')
+      priority: optional ('низкий'|'средний'|'высокий') or short 'low|med|high'
+    """
+    base, _ = _vault()
+    from datetime import datetime as _dt, timedelta as _td
+    t = str(params.get("text") or "").strip()
+    if not t:
+        return {"error": "text is required"}
+    # due parsing
+    due_raw = str(params.get("due") or "").strip().lower()
+    due = ""
+    if due_raw:
+        if any(k in due_raw for k in ["сегодня", "today"]):
+            due = _dt.now().strftime('%Y-%m-%d')
+        elif any(k in due_raw for k in ["завтра", "tomorrow"]):
+            due = (_dt.now() + _td(days=1)).strftime('%Y-%m-%d')
+        else:
+            due = due_raw
+    pr_raw = str(params.get("priority") or "").strip().lower()
+    pr_map = {"low": "низкий", "med": "средний", "high": "высокий"}
+    if pr_raw in pr_map:
+        pr = pr_map[pr_raw]
+    else:
+        pr = pr_raw if pr_raw in ("низкий", "средний", "высокий") else ""
+    date = _dt.now().strftime("%Y-%m-%d")
+    folder_path = params.get("folder", "Notes/Journal/Daily")
+    p = base / folder_path / f"daily-{date}.md"
+    if not p.exists():
+        # create daily quickly with a minimal body
+        fm = _frontmatter({
+            "date": date,
+            "Title": f"Daily {date}",
+            "Categories": "daily",
+            "tags": ["daily"],
+            "cssclasses": [],
+            "created_at": _dt.now().isoformat(timespec='seconds'),
+            "last_modified": _dt.now().isoformat(timespec='seconds'),
+        })
+        p.write_text(fm + f"# Daily {date}\n\n", encoding="utf-8")
+    md = p.read_text(encoding="utf-8")
+    task_line = f"- [ ] {t}"
+    if due:
+        task_line += f" (due: {due})"
+    if pr:
+        task_line += f" (priority: {pr})"
+    # ensure section
+    if "## Задачи" not in md:
+        md = md.rstrip() + "\n\n## Задачи\n\n" + task_line + "\n"
+    else:
+        md = md.rstrip() + "\n" + task_line + "\n"
+    p.write_text(md, encoding="utf-8")
+    return {"task_added": t, "daily_path": str(p)}
+
+@register("obsidian_mark_task")
+def step_obsidian_mark_task(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Mark a task as done by substring match in today's daily (or provided file).
+    Params:
+      match: substring to locate the task line
+      file: optional relative path; default today's daily
+    """
+    base, _ = _vault()
+    from datetime import datetime as _dt
+    match = str(params.get("match") or "").strip()
+    if not match:
+        return {"error": "match is required"}
+    file = params.get("file")
+    if file:
+        p = base / str(file)
+    else:
+        date = _dt.now().strftime("%Y-%m-%d")
+        p = base / "Notes/Journal/Daily" / f"daily-{date}.md"
+    if not p.exists():
+        return {"error": f"file not found: {p}"}
+    md = p.read_text(encoding="utf-8")
+    lines = md.splitlines()
+    changed = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith("- [ ]") and match.lower() in line.lower():
+            lines[i] = line.replace("- [ ]", "- [x]", 1)
+            changed = True
+            break
+    if not changed:
+        return {"error": "task not found"}
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return {"task_marked": match, "file": str(p)}
+
 @register("create_weekly_note")
 def step_create_weekly_note(params: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
     """Create a weekly note with YAML frontmatter and basic template.

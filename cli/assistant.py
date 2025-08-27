@@ -1,4 +1,5 @@
 import sys
+import os
 import json
 import shlex
 import re
@@ -7,8 +8,10 @@ from datetime import datetime
 
 from orchestrator.registry import Registry
 from config import load_config
+from agents.obsidian.manager import ObsidianManager
 
 from pipelines import steps  # noqa: F401 - ensure step functions are registered via decorators
+from pipelines import finance_health_steps  # noqa: F401 - register finance/health steps
 # Простой rule-based планировщик
 # На вход: текст, на выход: список шагов {name, params}
 
@@ -250,6 +253,91 @@ def plan(user_text: str) -> List[Dict[str, Any]]:
         }})
         return steps
 
+    # Финансы: импорт CSV
+    if any(k in t for k in ["финанс", "finance"]) and ("csv" in t or "сvс" in t):
+        # извлечь путь к csv: последнее слово, оканчивающееся на .csv
+        path = None
+        for tok in re.split(r"\s+", user_text):
+            if tok.lower().endswith(".csv"):
+                path = tok.strip().strip("'\"")
+        if path:
+            steps.append({"name": "finance_import_csv", "params": {"csv": path}})
+            return steps
+
+    # Финансы: запись расхода/дохода
+    if any(k in t for k in ["финанс", "finance", "расход", "доход", "покуп", "income", "expense"]):
+        kind = "expense"
+        if any(k in t for k in ["доход", "income"]):
+            kind = "income"
+        # сумма и валюта
+        m_amt = re.search(r"(\d+[\.,]\d+|\d+)\s*(uah|грн|₴|usd|eur|€|\$)?", user_text, flags=re.IGNORECASE)
+        amount = None
+        currency = None
+        if m_amt:
+            amount = m_amt.group(1).replace(",", ".")
+            cur = (m_amt.group(2) or "").lower()
+            cur_map = {"грн": "UAH", "uah": "UAH", "₴": "UAH", "usd": "USD", "$": "USD", "eur": "EUR", "€": "EUR"}
+            currency = cur_map.get(cur, None)
+        # категория
+        cat = None
+        m_cat = re.search(r"категор\w*\s+([\w\-_/]+)", user_text, flags=re.IGNORECASE)
+        if m_cat:
+            cat = m_cat.group(1)
+        if not cat:
+            m_hash = re.search(r"#([\w\-_]+)", user_text)
+            if m_hash:
+                cat = m_hash.group(1)
+        note = user_text
+        # очистим служебные маркеры
+        note = re.sub(r"финанс\w*|finance|расход|доход|покуп\w*|income|expense", "", note, flags=re.IGNORECASE)
+        if amount:
+            note = note.replace(m_amt.group(0), "")
+        if cat:
+            note = re.sub(r"категор\w*\s+[\w\-_/]+", "", note, flags=re.IGNORECASE)
+            note = re.sub(r"#[\w\-_]+", "", note)
+        note = note.strip(" .:")
+        params = {"type": kind}
+        if amount: params["amount"] = float(amount)
+        if currency: params["currency"] = currency
+        if cat: params["category"] = cat
+        if note: params["note"] = note
+        if amount:
+            steps.append({"name": "finance_add_record", "params": params})
+            return steps
+
+    # Здоровье: лог метрик
+    if any(k in t for k in ["здоров", "health", "пульс", "сон", "давлен", "вес"]):
+        metrics = {}
+        m_w = re.search(r"вес\s*(\d+(?:[\.,]\d+)?)", user_text, flags=re.IGNORECASE)
+        if m_w:
+            metrics["weight_kg"] = float(m_w.group(1).replace(",", "."))
+        m_p = re.search(r"пульс\s*(\d+)", user_text, flags=re.IGNORECASE)
+        if m_p:
+            metrics["pulse_bpm"] = int(m_p.group(1))
+        m_bp = re.search(r"давлен\w*\s*(\d+)\s*[\/-]\s*(\d+)", user_text, flags=re.IGNORECASE)
+        if m_bp:
+            metrics["bp_sys"] = int(m_bp.group(1)); metrics["bp_dia"] = int(m_bp.group(2))
+        # сон: 'сон 7:30' или 'спал 7.5'
+        m_sleep_hm = re.search(r"(?:сон|sleep)\s*(\d+):(\d{2})", user_text, flags=re.IGNORECASE)
+        if m_sleep_hm:
+            h, m = int(m_sleep_hm.group(1)), int(m_sleep_hm.group(2))
+            metrics["sleep_min"] = h*60 + m
+        else:
+            m_sleep_h = re.search(r"(?:сон|sleep|спал)\s*(\d+(?:[\.,]\d+)?)\s*час", user_text, flags=re.IGNORECASE)
+            if m_sleep_h:
+                hours = float(m_sleep_h.group(1).replace(",", "."))
+                metrics["sleep_min"] = int(round(hours*60))
+        m_steps = re.search(r"шаг(?:ов|и)?\s*(\d+)", user_text, flags=re.IGNORECASE)
+        if m_steps:
+            metrics["steps"] = int(m_steps.group(1))
+        note = re.sub(r"здоров\w*|health|вес\s*\d+[\.,]?\d*|пульс\s*\d+|давлен\w*\s*\d+[\/-]\d+|сон\s*\d+(?::\d{2})?|спал\s*\d+[\.,]?\d*\s*час\w*|шаг(?:ов|и)?\s*\d+", "", user_text, flags=re.IGNORECASE)
+        note = note.strip(" .:")
+        if note:
+            metrics["note"] = note
+        if metrics:
+            steps.append({"name": "health_log", "params": metrics})
+            return steps
+
     # Поиск в вебе ➜ сохранить источники ➜ (опц.)индекс ➜ топK
     if any(k in t for k in ["поиск", "search", "гугл", "web"]):
         # Извлечём фразу после двоеточия, если есть
@@ -300,15 +388,55 @@ def plan(user_text: str) -> List[Dict[str, Any]]:
         steps.append({"name": "vector_topk", "params": {"query": query, "k": 10}})
         return steps
 
+    # Задачи: добавить
+    if "задач" in t or t.startswith("задача"):
+        # формат: "задача: текст ... до <дата/сегодня/завтра> приоритет <высокий/средний/низкий>"
+        text = user_text
+        m = re.search(r"задач\w*\s*:?\s*(.+)$", user_text, flags=re.IGNORECASE)
+        if m:
+            text = m.group(1).strip()
+        due = None
+        pr = None
+        md = re.search(r"до\s+([^,;]+)", text, flags=re.IGNORECASE)
+        if md:
+            due = md.group(1).strip()
+        mp = re.search(r"приоритет\s+([^,;]+)", text, flags=re.IGNORECASE)
+        if mp:
+            pr = mp.group(1).strip()
+        # вырезать служебные куски из текста
+        text_clean = re.sub(r"до\s+[^,;]+", "", text, flags=re.IGNORECASE)
+        text_clean = re.sub(r"приоритет\s+[^,;]+", "", text_clean, flags=re.IGNORECASE).strip(" .:")
+        steps.append({"name": "obsidian_add_task", "params": {"text": text_clean, **({"due": due} if due else {}), **({"priority": pr} if pr else {})}})
+        return steps
+
+    # Задачи: отметить выполненной
+    if any(k in t for k in ["выполни задачу", "отметь задачу", "закрой задачу", "complete task"]):
+        # извлечь фразу после ключевых слов
+        m = re.search(r"(?:выполни\s+задач\w*|отметь\s+задач\w*|закрой\s+задач\w*|complete\s+task)\s*:?\s*(.+)$", user_text, flags=re.IGNORECASE)
+        match = (m.group(1).strip() if m else user_text)
+        steps.append({"name": "obsidian_mark_task", "params": {"match": match}})
+        return steps
+
     # По умолчанию: лёгкий веб-поиск
     steps.append({"name": "search_web", "params": {"query": user_text}})
     steps.append({"name": "save_sources_markdown", "params": {"title": f"Agent Sources: {user_text[:40]}"}})
     return steps
 
+def _is_risky_step(name: str) -> bool:
+    nl = name.lower()
+    risky_words = ["install", "disable", "delete", "clear", "set_setting"]
+    return any(w in nl for w in risky_words)
+
 def confirm(plan_steps: List[Dict[str, Any]]) -> bool:
+    auto = os.environ.get("AI_STACK_AUTO_EXECUTE", "0") == "1"
+    allow_risk = os.environ.get("AI_STACK_ALLOW_RISK", "0") == "1"
+    risky = any(_is_risky_step(s.get("name", "")) for s in plan_steps)
     print("Предлагаемый план:")
     for i, s in enumerate(plan_steps, 1):
         print(f" {i}. {s['name']} {json.dumps(s.get('params', {}), ensure_ascii=False)}")
+    if auto and (not risky or allow_risk):
+        print("Авто-режим: выполняю без подтверждения.")
+        return True
     ans = input("Выполнить? [y/N]: ")
     if ans is None:
         return False
@@ -316,6 +444,36 @@ def confirm(plan_steps: List[Dict[str, Any]]) -> bool:
     # Принимаем любые ответы, начинающиеся на y/д, и общие формы
     return bool(ans) and (ans.startswith("y") or ans.startswith("д") or ans in ("yes", "да"))
 
+
+def _suggest_next(plan_steps: List[Dict[str, Any]], ctx: Dict[str, Any]) -> List[str]:
+    suggestions: List[str] = []
+    names = [s.get("name", "") for s in plan_steps]
+    if any(n in names for n in ("create_daily_note", "append_daily_note")):
+        suggestions.append("Сделать Top‑K по теме дня и сохранить сводку?")
+        suggestions.append("Добавить задачи на сегодня?")
+    if "ingest_vault_all" in names:
+        suggestions.append("Запустить Top‑K по свежим материалам?")
+    if any(n.startswith("obsidian_") for n in names):
+        suggestions.append("Обновить keywords или связать заметки wikilinks?")
+    if any(n in names for n in ("finance_import_csv", "finance_add_record")):
+        suggestions.append("Построить недельный отчёт расходов по категориям?")
+    if "health_log" in names:
+        suggestions.append("Нарисовать тренды веса/пульса за месяц?")
+    return suggestions[:3]
+
+def _write_suggestions_to_vault(lines: List[str]) -> None:
+    if not lines:
+        return
+    cfg = load_config()
+    mgr = ObsidianManager(cfg.vault_path)
+    from datetime import datetime as _dt
+    date = _dt.now().strftime('%Y-%m-%d')
+    rel = f"Notes/Suggestions/suggestions-{date}.md"
+    content = "\n".join(f"- {l}" for l in lines) + "\n"
+    try:
+        mgr.append_note(rel, content, header="Подсказки")
+    except Exception:
+        pass
 
 def run(plan_steps: List[Dict[str, Any]]) -> Dict[str, Any]:
     ctx: Dict[str, Any] = {}
@@ -334,6 +492,14 @@ def run(plan_steps: List[Dict[str, Any]]) -> Dict[str, Any]:
         except Exception as e:
             print(f"❌ {name} ошибка: {e}")
             break
+    # Suggestions
+    if os.environ.get("AI_STACK_SUGGEST", "1") == "1":
+        tips = _suggest_next(plan_steps, ctx)
+        if tips:
+            print("\nВам может быть полезно:")
+            for t in tips:
+                print(" -", t)
+            _write_suggestions_to_vault(tips)
     return ctx
 
 

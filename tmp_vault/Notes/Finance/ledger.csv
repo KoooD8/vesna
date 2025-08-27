@@ -1,0 +1,4 @@
+date,amount,currency,description,category,source_file
+2025-08-24,-250.0,UAH,Groceries,uncategorized,mini.csv
+2025-08-24,1000.0,USD,Salary,uncategorized,mini.csv
+2025-08-24,-250.0,UAH,купил хлеб и молоко,продукты,manual

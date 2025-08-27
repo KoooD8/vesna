@@ -1,0 +1,7 @@
+vault_path: "/Users/onopriychukpavel/Documents/ai_agents_stack/tmp_vault"
+folders:
+  sources: Sources
+  summaries: Summaries
+  entities: Entities
+  index: Index
+  logs: Logs
